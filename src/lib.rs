@@ -5,8 +5,9 @@
 //! done by shifting zeroes through all devices
 
 use embedded_hal::digital::{OutputPin, PinState};
+use embedded_hal::delay::DelayNs;
 
-struct ShiftRegister<OE, SER, CLK, LATCH> {
+struct ShiftRegister<OE, SER, CLK, LATCH, D> {
     /// Output enable (Pin /G)
     not_oe: OE,
     /// Serial data (Pin SER IN)
@@ -15,30 +16,58 @@ struct ShiftRegister<OE, SER, CLK, LATCH> {
     clk: CLK,
     /// Latch (Pin RCK)
     latch: LATCH,
+    /// Delay for pulse width
+    delay: D,
 }
 
-impl<OE, SER, CLK, LATCH> ShiftRegister<OE, SER, CLK, LATCH>
+impl<OE, SER, CLK, LATCH, D> ShiftRegister<OE, SER, CLK, LATCH, D>
 where
     OE: OutputPin,
     SER: OutputPin,
     CLK: OutputPin,
     LATCH: OutputPin,
+    D: DelayNs
+
 {
-    pub fn new(not_oe: OE, serial_data: SER, serial_clock: CLK, latch: LATCH) -> Self {
+    pub fn new(not_oe: OE, serial_data: SER, serial_clock: CLK, latch: LATCH, delay: D) -> Self {
         ShiftRegister {
             not_oe,
             ser: serial_data,
             clk: serial_clock,
             latch,
+            delay,
         }
     }
 
+    /// Enables or disables the output buffers.
+    ///
+    /// Enables the output buffers by pulling the /G pin low (enabled) or high (disabled)
+    /// # Arguments
+    ///
+    /// * `enable` - enable (`true`) or disable (`false`) the output buffers.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` indicating success or an error if the operation fails.
     pub fn output_enable(&mut self, enable: bool) -> Result<(), OE::Error> {
         self.not_oe.set_state(PinState::from(!enable))
+    }
+
+    /// Latch data: Pulse RCK pin for 100 ns
+    fn latch(&mut self) -> Result<(), LATCH::Error> {
+        self.latch.set_high()?;
+        self.delay.delay_ns(100);
+        self.latch.set_low()
     }
 }
 
 
+// [X]  OE  /G  
+// [ ]  SER
+// [ ]  CLK
+// [X]  LATCH RCK  Pulse
+// [ ]
+// [ ]
 // Description from the datasheet, for reference while implementing....
 //
 // This device contains an 8-bit serial-in, parallel-out
@@ -59,3 +88,5 @@ where
 // have sink-current capability. The serial output (SER
 // OUT) allows for cascading of the data from the shift
 // register to additional devices.
+//
+// DATASHEET https://www.ti.com/lit/ds/symlink/tpic6b595.pdf?ts=1764222514654
