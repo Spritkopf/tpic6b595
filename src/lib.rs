@@ -20,15 +20,11 @@ pub enum Error<SPI> {
 }
 
 
-pub struct ShiftRegister<const N: usize, SPI, OE, SER, CLK, LATCH, D> {
-    /// SPI device
+pub struct ShiftRegister<const N: usize, SPI, OE, LATCH, D> {
+    /// SPI device, connect SPI_MOSI to device pin "SER IN", SPI_CLK to "CRCLK"
     spi: SPI,
     /// Output enable (Pin /G)
     not_oe: OE,
-    /// Serial data (Pin SER IN)
-    ser: SER,
-    /// Serial clock (Pin CRCLK)
-    clk: CLK,
     /// Latch (Pin RCK)
     latch: LATCH,
     /// Delay for pulse width
@@ -37,12 +33,10 @@ pub struct ShiftRegister<const N: usize, SPI, OE, SER, CLK, LATCH, D> {
     data: [u8; N],
 }
 
-impl<const N: usize, SPI, OE, SER, CLK, LATCH, D> ShiftRegister<N, SPI, OE, SER, CLK, LATCH, D>
+impl<const N: usize, SPI, OE, LATCH, D> ShiftRegister<N, SPI, OE, LATCH, D>
 where
     SPI: SpiDevice,
     OE: OutputPin,
-    SER: OutputPin,
-    CLK: OutputPin,
     LATCH: OutputPin,
     D: DelayNs,
 {
@@ -51,8 +45,6 @@ where
     /// # Arguments
     ///
     /// * `not_oe` - The output enable pin (Pin /G; active low).
-    /// * `serial_data` - The serial data input pin (Pin SER_IN).
-    /// * `serial_clock` - The serial clock input pin (Pin CRCLK).
     /// * `latch` - The storage register clock (latch) pin (Pin RCK).
     /// * `delay` - A delay provider for timing operations.
     ///
@@ -62,16 +54,12 @@ where
     pub fn new(
         spi: SPI,
         not_oe: OE,
-        serial_data: SER,
-        serial_clock: CLK,
         latch: LATCH,
         delay: D,
     ) -> Self {
         ShiftRegister {
             spi,
             not_oe,
-            ser: serial_data,
-            clk: serial_clock,
             latch,
             delay,
             data: [0u8; N],
@@ -108,7 +96,7 @@ where
     ///
     /// # Returns
     ///
-    /// A `Result` which is:
+    /// A `Result` which can be:
     /// - `Ok(bool)`: The value of the bit at the given index (`true` for 1, `false` for 0).
     /// - `Err(Error::IndexOutOfBounds)`: The provided index `idx` is out of bounds for the bit array or if
     ///   `idx` is greater than or equal to the total number of bits (`N * 8`).
@@ -141,8 +129,8 @@ where
 // [ ]  SER
 // [ ]  CLK
 // [X]  LATCH RCK  Pulse
-// [ ]  clear
-// [ ]
+// [X]  clear
+// [x]  write_all
 // Description from the datasheet, for reference while implementing....
 //
 // This device contains an 8-bit serial-in, parallel-out
