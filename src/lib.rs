@@ -1,13 +1,13 @@
 #![no_std]
 #![warn(missing_docs)]
 
-//! An embedded driver for TPIC6B595 shift registers. To save pins /SRCLR is not used, clearing is
-//! done by shifting zeroes through all devices
+//! An embedded driver for TPIC6B595 shift registers. Devices can be daisy-chained. To save pins /SRCLR is not 
+//! used (tie it to VCC), clearing is done by shifting zeroes through all devices.
 
-use embedded_hal::digital::{OutputPin, PinState};
 use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::{OutputPin, PinState};
 
-struct ShiftRegister<OE, SER, CLK, LATCH, D> {
+struct ShiftRegister<const N: usize, OE, SER, CLK, LATCH, D> {
     /// Output enable (Pin /G)
     not_oe: OE,
     /// Serial data (Pin SER IN)
@@ -18,16 +18,17 @@ struct ShiftRegister<OE, SER, CLK, LATCH, D> {
     latch: LATCH,
     /// Delay for pulse width
     delay: D,
+    /// Buffer representing the outputs, each byte represents one Shift Register
+    data: [u8; N],
 }
 
-impl<OE, SER, CLK, LATCH, D> ShiftRegister<OE, SER, CLK, LATCH, D>
+impl<const N: usize, OE, SER, CLK, LATCH, D> ShiftRegister<N, OE, SER, CLK, LATCH, D>
 where
     OE: OutputPin,
     SER: OutputPin,
     CLK: OutputPin,
     LATCH: OutputPin,
-    D: DelayNs
-
+    D: DelayNs,
 {
     pub fn new(not_oe: OE, serial_data: SER, serial_clock: CLK, latch: LATCH, delay: D) -> Self {
         ShiftRegister {
@@ -36,6 +37,7 @@ where
             clk: serial_clock,
             latch,
             delay,
+            data: [0u8; N],
         }
     }
 
@@ -61,22 +63,25 @@ where
     }
 }
 
-
-// [X]  OE  /G  
+// [X]  OE  /G
 // [ ]  SER
 // [ ]  CLK
 // [X]  LATCH RCK  Pulse
-// [ ]
+// [ ]  clear
 // [ ]
 // Description from the datasheet, for reference while implementing....
 //
 // This device contains an 8-bit serial-in, parallel-out
 // shift register that feeds an 8-bit D-type storage
-// register. Data transfers through the shift and storage
+// register.
+// Data transfers through the shift and storage
 // registers on the rising edge of the shift-register clock
 // (SRCK) and the register clock (RCK), respectively.
+//
 // The storage register transfers data to the output buffer
-// when shift-register clear ( SRCLR) is high. Write data
+// when shift-register clear ( SRCLR) is high.
+//
+// Write data
 // and read data are valid only when RCK is low. When
 // SRCLR is low, the input shift register is cleared.
 // When output enable ( G) is held high, all data in the
