@@ -19,7 +19,7 @@ pub enum Error<SPI> {
     Spi(SPI),
 }
 
-
+/// ShiftRegister structure for the TPIC6B595
 pub struct ShiftRegister<const N: usize, SPI, OE, LATCH, D> {
     /// SPI device, connect SPI_MOSI to device pin "SER IN", SPI_CLK to "CRCLK"
     spi: SPI,
@@ -51,12 +51,7 @@ where
     /// # Returns
     ///
     /// A new `ShiftRegister` instance initialized with the given pins and a zeroed internal data buffer.
-    pub fn new(
-        spi: SPI,
-        not_oe: OE,
-        latch: LATCH,
-        delay: D,
-    ) -> Self {
+    pub fn new(spi: SPI, not_oe: OE, latch: LATCH, delay: D) -> Self {
         ShiftRegister {
             spi,
             not_oe,
@@ -88,19 +83,19 @@ where
         self.latch.set_low()
     }
 
-    /// Retrieves the bit at the specified index.
+    /// Retrieves the output state at the specified index.
     ///
     /// # Arguments
     ///
-    /// * `idx` - The index of the bit to retrieve.
+    /// * `idx` - The index of the output to retrieve.
     ///
     /// # Returns
     ///
     /// A `Result` which can be:
-    /// - `Ok(bool)`: The value of the bit at the given index (`true` for 1, `false` for 0).
+    /// - `Ok(bool)`: The value of the output at the given index (`true` for enabled, `false` for disabled).
     /// - `Err(Error::IndexOutOfBounds)`: The provided index `idx` is out of bounds for the bit array or if
     ///   `idx` is greater than or equal to the total number of bits (`N * 8`).
-    pub fn get_bit(&self, idx: usize) -> Result<bool, Error<SPI::Error>> {
+    pub fn get_output(&self, idx: usize) -> Result<bool, Error<SPI::Error>> {
         let max_bits: usize = N
             .checked_mul(size_of::<u8>())
             .ok_or(Error::IndexOutOfBounds)?;
@@ -112,6 +107,37 @@ where
         Ok(self.data[byte_idx] & (1 << bit_idx) != 0)
     }
 
+    /// Sets the output at the specified index.
+    ///
+    /// Note that this function only updates internal state of the ShiftRegister driver. To set the
+    /// actual outputs of the device call [`ShiftRegister::write_all()`]
+    /// # Arguments
+    ///
+    /// * `idx` - The index of the output to set.
+    /// * `output_state` - desired state of the output (`true` for enabled, `false` for disabled) 
+    ///
+    /// # Returns
+    ///
+    /// A `Result` which can be:
+    /// - `Ok()`
+    /// - `Err(Error::IndexOutOfBounds)`: The provided index `idx` is out of bounds for the bit array or if
+    ///   `idx` is greater than or equal to the total number of bits (`N * 8`).
+    pub fn set_output(&mut self, idx: usize, output_state: bool) -> Result<(), Error<SPI::Error>> {
+        let max_bits: usize = N
+            .checked_mul(size_of::<u8>())
+            .ok_or(Error::IndexOutOfBounds)?;
+        if idx >= max_bits {
+            return Err(Error::IndexOutOfBounds);
+        }
+        let byte_idx = idx / 8;
+        let bit_idx = idx % 8;
+        self.data[byte_idx] &= !(1u8 << bit_idx);
+        if output_state {
+            self.data[byte_idx] |= 1 << bit_idx;
+        }
+        Ok(())
+    }
+
     /// Clears all outputs
     pub fn clear(&mut self) {
         self.data = [0u8; N];
@@ -120,8 +146,18 @@ where
     /// Writes all current data to the shift register via SPI.
     pub fn write_all(&mut self) -> Result<(), Error<SPI::Error>> {
         self.spi.write(&self.data).map_err(Error::Spi)?;
-        self.latch().map_err(|_|Error::IoError)?;
+        self.latch().map_err(|_| Error::IoError)?;
         Ok(())
+    }
+
+    /// Writes a specific output via SPI
+    ///
+    /// All other outputs are left untouched
+    ///
+    /// This is a convenience method equivalent to `set_output(idx, output_state); write_all();`
+    pub fn write_output(&mut self, idx: usize, output_state: bool) -> Result<(), Error<SPI::Error>> {
+        self.set_output(idx, output_state)?;
+        self.write_all()
     }
 }
 
