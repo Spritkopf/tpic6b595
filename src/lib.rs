@@ -152,6 +152,9 @@ where
     }
 
     /// Clears all outputs
+    ///
+    /// Note that this function only updates internal state of the ShiftRegister driver. To set the
+    /// actual outputs of the device call [`ShiftRegister::write_all()`]
     pub fn clear(&mut self) {
         self.data = [0u8; N];
     }
@@ -178,35 +181,66 @@ where
     }
 }
 
-// [X]  OE  /G
-// [ ]  SER
-// [ ]  CLK
-// [X]  LATCH RCK  Pulse
-// [X]  clear
-// [x]  write_all
-// Description from the datasheet, for reference while implementing....
-//
-// This device contains an 8-bit serial-in, parallel-out
-// shift register that feeds an 8-bit D-type storage
-// register.
-// Data transfers through the shift and storage
-// registers on the rising edge of the shift-register clock
-// (SRCK) and the register clock (RCK), respectively.
-//
-// The storage register transfers data to the output buffer
-// when shift-register clear ( SRCLR) is high.
-//
-// Write data
-// and read data are valid only when RCK is low. When
-// SRCLR is low, the input shift register is cleared.
-// When output enable ( G) is held high, all data in the
-// output buffers is held low and all drain outputs are off.
-// When G is held low, data from the storage register
-// is transparent to the output buffers. When data in the
-// output buffers is low, the DMOS-transistor outputs are
-// off. When data is high, the DMOS transistor outputs
-// have sink-current capability. The serial output (SER
-// OUT) allows for cascading of the data from the shift
-// register to additional devices.
-//
-// DATASHEET https://www.ti.com/lit/ds/symlink/tpic6b595.pdf?ts=1764222514654
+#[cfg(test)]
+mod test {
+    use super::*;
+    use embedded_hal_mock::eh1::{
+        delay::NoopDelay as DelayMock,
+        digital::{Mock as PinMock, State, Transaction as PinTransaction},
+        spi::{Mock as SpiMock, Transaction as SpiTransaction},
+    };
+
+    #[test]
+    /// Clear all outputs
+    fn clear() {
+        // empty mocks, peripherals not used
+        let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+        let mut oe_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
+        let mut latch_mock = PinMock::new(&[]);
+
+        let mut dev = ShiftRegister::<2, _, _, _, _>::new(
+            spi.clone(),
+            oe_mock.clone(),
+            latch_mock.clone(),
+            delay_mock,
+        );
+
+        dev.data = [0xff, 0x12];
+        dev.clear();
+
+        assert_eq!(dev.data, [0u8, 0u8]);
+
+        spi.done();
+        oe_mock.done();
+        latch_mock.done();
+    }
+
+    /// Tests that the LATCH pin goes high and then low. Does NOT concern the delay in between
+    fn latch() {
+        // empty mocks, peripherals not used
+        let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+        let mut oe_mock = PinMock::new(&[]);
+
+        let mut delay_mock = DelayMock::new();
+
+        // expect latch to go high and then low
+        let mut latch_mock = PinMock::new(&[
+            PinTransaction::set(State::High),
+            PinTransaction::set(State::Low),
+        ]);
+
+        let mut dev = ShiftRegister::<1, _, _, _, _>::new(
+            spi.clone(),
+            oe_mock.clone(),
+            latch_mock.clone(),
+            delay_mock,
+        );
+
+        dev.latch().unwrap();
+
+        spi.done();
+        oe_mock.done();
+        latch_mock.done();
+    }
+}
