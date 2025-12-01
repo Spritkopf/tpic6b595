@@ -20,6 +20,18 @@ pub enum Error<SPI> {
 }
 
 /// ShiftRegister structure for the TPIC6B595
+///
+/// The parameter N is the number of daisy-chained shift registers. Data is shifted out MSB first,
+/// so byte N in the data buffer is the first register, byte N-1 is the second and so on:
+/// ```text
+///      data[N]  data[N-1]  ...    data[0]   
+///     ┌────────┌────────┌────────┌────────┐
+///     │01234567│01234567│  ...   │01234567│
+///     └────────└────────└────────└────────┘
+/// idx  01234567 89 ...                  (N*8)
+/// ```
+/// The set_output / write_output functions will take care of the byte ordering, so all that is
+/// needed is the index
 pub struct ShiftRegister<const N: usize, SPI, OE, LATCH, D> {
     /// SPI device, connect SPI_MOSI to device pin "SER IN", SPI_CLK to "CRCLK"
     spi: SPI,
@@ -114,7 +126,7 @@ where
     /// # Arguments
     ///
     /// * `idx` - The index of the output to set.
-    /// * `output_state` - desired state of the output (`true` for enabled, `false` for disabled) 
+    /// * `output_state` - desired state of the output (`true` for enabled, `false` for disabled)
     ///
     /// # Returns
     ///
@@ -129,11 +141,12 @@ where
         if idx >= max_bits {
             return Err(Error::IndexOutOfBounds);
         }
-        let byte_idx = idx / 8;
+        let byte_idx = N - (idx / 8);
         let bit_idx = idx % 8;
-        self.data[byte_idx] &= !(1u8 << bit_idx);
         if output_state {
             self.data[byte_idx] |= 1 << bit_idx;
+        } else {
+            self.data[byte_idx] &= !(1u8 << bit_idx);
         }
         Ok(())
     }
@@ -155,7 +168,11 @@ where
     /// All other outputs are left untouched
     ///
     /// This is a convenience method equivalent to `set_output(idx, output_state); write_all();`
-    pub fn write_output(&mut self, idx: usize, output_state: bool) -> Result<(), Error<SPI::Error>> {
+    pub fn write_output(
+        &mut self,
+        idx: usize,
+        output_state: bool,
+    ) -> Result<(), Error<SPI::Error>> {
         self.set_output(idx, output_state)?;
         self.write_all()
     }
