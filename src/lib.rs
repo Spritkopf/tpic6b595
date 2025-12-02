@@ -84,7 +84,7 @@ where
     /// # Returns
     ///
     /// A `Result` indicating success or an error if the operation fails.
-    pub fn output_enable(&mut self, enable: bool) -> Result<(), OE::Error> {
+    pub fn enable_output(&mut self, enable: bool) -> Result<(), OE::Error> {
         self.not_oe.set_state(PinState::from(!enable))
     }
 
@@ -133,14 +133,12 @@ where
     /// - `Err(Error::IndexOutOfBounds)`: The provided index `idx` is out of bounds for the bit array or if
     ///   `idx` is greater than or equal to the total number of bits (`N * 8`).
     pub fn set_output(&mut self, idx: usize, output_state: bool) -> Result<(), Error<SPI::Error>> {
-        let max_bits: usize = N
-            .checked_mul(size_of::<u8>())
-            .ok_or(Error::IndexOutOfBounds)?;
+        let max_bits: usize = N.checked_mul(8).ok_or(Error::IndexOutOfBounds)?;
         if idx >= max_bits {
             return Err(Error::IndexOutOfBounds);
         }
         let byte_idx = N - 1 - (idx / 8);
-        let bit_idx = idx % 7;
+        let bit_idx = idx % 8;
         if output_state {
             self.data[byte_idx] |= 1 << bit_idx;
         } else {
@@ -228,7 +226,7 @@ mod test {
             latch_mock.clone(),
             delay_mock,
         );
-        
+
         //      farthest , nearest
         dev.data = [0x81, 0x13];
 
@@ -242,6 +240,41 @@ mod test {
 
         // out of bounds error
         let err = dev.get_output(16).unwrap_err();
+        assert!(matches!(err, Error::IndexOutOfBounds));
+
+        spi_mock.done();
+        oe_mock.done();
+        latch_mock.done();
+    }
+
+    #[test]
+    /// Set a specific output
+    fn test_set_output() {
+        let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
+        let mut oe_mock = PinMock::new(&[]);
+        let mut latch_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
+
+        // Init with N=2 -> 16 output bits available
+        let mut dev = ShiftRegister::<2, _, _, _, _>::new(
+            spi_mock.clone(),
+            oe_mock.clone(),
+            latch_mock.clone(),
+            delay_mock,
+        );
+        dev.set_output(0, true).unwrap();
+        dev.set_output(1, true).unwrap();
+        dev.set_output(4, true).unwrap();
+        dev.set_output(8, true).unwrap();
+        dev.set_output(15, true).unwrap();
+        assert_eq!(dev.data, [0x81, 0x13]);
+
+        dev.set_output(1, false).unwrap();
+        dev.set_output(8, false).unwrap();
+        assert_eq!(dev.data, [0x80, 0x11]);
+
+        // out of bounds error
+        let err = dev.set_output(16, true).unwrap_err();
         assert!(matches!(err, Error::IndexOutOfBounds));
 
         spi_mock.done();
@@ -268,7 +301,7 @@ mod test {
                 delay_mock,
             );
 
-            dev.output_enable(false).unwrap();
+            dev.enable_output(false).unwrap();
 
             spi.done();
             oe_mock.done();
@@ -276,7 +309,6 @@ mod test {
         }
         // case 2: enable outputs
         {
-            // empty mocks, peripherals not used
             let mut spi: SpiMock<u8> = SpiMock::new(&[]);
             let mut latch_mock = PinMock::new(&[]);
             let delay_mock = DelayMock::new();
@@ -291,7 +323,7 @@ mod test {
                 delay_mock,
             );
 
-            dev.output_enable(true).unwrap();
+            dev.enable_output(true).unwrap();
 
             spi.done();
             oe_mock.done();
