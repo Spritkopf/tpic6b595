@@ -10,3 +10,7 @@ embedded-hal = "1.0.0"
 
 [dev-dependencies]
 embedded-hal-mock = { version = "0.11.1", features = ["eh1"] }
+
+[profile.dev]
+debug = true
+split-debuginfo = "packed"

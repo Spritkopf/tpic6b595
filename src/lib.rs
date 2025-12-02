@@ -108,13 +108,11 @@ where
     /// - `Err(Error::IndexOutOfBounds)`: The provided index `idx` is out of bounds for the bit array or if
     ///   `idx` is greater than or equal to the total number of bits (`N * 8`).
     pub fn get_output(&self, idx: usize) -> Result<bool, Error<SPI::Error>> {
-        let max_bits: usize = N
-            .checked_mul(size_of::<u8>())
-            .ok_or(Error::IndexOutOfBounds)?;
+        let max_bits: usize = N.checked_mul(8).ok_or(Error::IndexOutOfBounds)?;
         if idx >= max_bits {
             return Err(Error::IndexOutOfBounds);
         }
-        let byte_idx = idx / 8;
+        let byte_idx = N - 1 - (idx / 8);
         let bit_idx = idx % 8;
         Ok(self.data[byte_idx] & (1 << bit_idx) != 0)
     }
@@ -141,8 +139,8 @@ where
         if idx >= max_bits {
             return Err(Error::IndexOutOfBounds);
         }
-        let byte_idx = N - (idx / 8);
-        let bit_idx = idx % 8;
+        let byte_idx = N - 1 - (idx / 8);
+        let bit_idx = idx % 7;
         if output_state {
             self.data[byte_idx] |= 1 << bit_idx;
         } else {
@@ -192,15 +190,14 @@ mod test {
 
     #[test]
     /// Clear all outputs
-    fn clear() {
-        // empty mocks, peripherals not used
-        let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+    fn test_clear() {
+        let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
         let mut oe_mock = PinMock::new(&[]);
-        let delay_mock = DelayMock::new();
         let mut latch_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
 
         let mut dev = ShiftRegister::<2, _, _, _, _>::new(
-            spi.clone(),
+            spi_mock.clone(),
             oe_mock.clone(),
             latch_mock.clone(),
             delay_mock,
@@ -211,19 +208,103 @@ mod test {
 
         assert_eq!(dev.data, [0u8, 0u8]);
 
-        spi.done();
+        spi_mock.done();
         oe_mock.done();
         latch_mock.done();
     }
 
-    /// Tests that the LATCH pin goes high and then low. Does NOT concern the delay in between
-    fn latch() {
-        // empty mocks, peripherals not used
-        let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+    #[test]
+    /// Get a specific output
+    fn test_get_output() {
+        let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
         let mut oe_mock = PinMock::new(&[]);
+        let mut latch_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
 
-        let mut delay_mock = DelayMock::new();
+        // Init with N=2 -> 16 output bits available
+        let mut dev = ShiftRegister::<2, _, _, _, _>::new(
+            spi_mock.clone(),
+            oe_mock.clone(),
+            latch_mock.clone(),
+            delay_mock,
+        );
+        
+        //      farthest , nearest
+        dev.data = [0x81, 0x13];
 
+        assert!(dev.get_output(0).unwrap()); // nearest
+        assert!(dev.get_output(1).unwrap());
+        assert!(!dev.get_output(2).unwrap());
+        assert!(dev.get_output(8).unwrap());
+        assert!(!dev.get_output(9).unwrap());
+        assert!(!dev.get_output(12).unwrap());
+        assert!(dev.get_output(15).unwrap()); // farthest
+
+        // out of bounds error
+        let err = dev.get_output(16).unwrap_err();
+        assert!(matches!(err, Error::IndexOutOfBounds));
+
+        spi_mock.done();
+        oe_mock.done();
+        latch_mock.done();
+    }
+
+    #[test]
+    /// Tests that the output bin is enabled correctly
+    fn test_enable_outputs() {
+        // case 1: disable outputs
+        {
+            let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+            let mut latch_mock = PinMock::new(&[]);
+            let delay_mock = DelayMock::new();
+
+            // expect oe to go high (disable outputs)
+            let mut oe_mock = PinMock::new(&[PinTransaction::set(State::High)]);
+
+            let mut dev = ShiftRegister::<1, _, _, _, _>::new(
+                spi.clone(),
+                oe_mock.clone(),
+                latch_mock.clone(),
+                delay_mock,
+            );
+
+            dev.output_enable(false).unwrap();
+
+            spi.done();
+            oe_mock.done();
+            latch_mock.done();
+        }
+        // case 2: enable outputs
+        {
+            // empty mocks, peripherals not used
+            let mut spi: SpiMock<u8> = SpiMock::new(&[]);
+            let mut latch_mock = PinMock::new(&[]);
+            let delay_mock = DelayMock::new();
+
+            // expect oe to go low (enable outputs)
+            let mut oe_mock = PinMock::new(&[PinTransaction::set(State::Low)]);
+
+            let mut dev = ShiftRegister::<1, _, _, _, _>::new(
+                spi.clone(),
+                oe_mock.clone(),
+                latch_mock.clone(),
+                delay_mock,
+            );
+
+            dev.output_enable(true).unwrap();
+
+            spi.done();
+            oe_mock.done();
+            latch_mock.done();
+        }
+    }
+
+    #[test]
+    /// Tests that the LATCH pin goes high and then low. Does NOT concern the delay in between
+    fn test_latch() {
+        let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
+        let mut oe_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
         // expect latch to go high and then low
         let mut latch_mock = PinMock::new(&[
             PinTransaction::set(State::High),
@@ -231,7 +312,7 @@ mod test {
         ]);
 
         let mut dev = ShiftRegister::<1, _, _, _, _>::new(
-            spi.clone(),
+            spi_mock.clone(),
             oe_mock.clone(),
             latch_mock.clone(),
             delay_mock,
@@ -239,7 +320,7 @@ mod test {
 
         dev.latch().unwrap();
 
-        spi.done();
+        spi_mock.done();
         oe_mock.done();
         latch_mock.done();
     }
