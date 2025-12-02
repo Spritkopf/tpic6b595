@@ -179,9 +179,10 @@ where
 
 #[cfg(test)]
 mod test {
+    extern crate std;
     use super::*;
     use embedded_hal_mock::eh1::{
-        delay::NoopDelay as DelayMock,
+        delay::{NoopDelay as DelayMock, CheckedDelay, Transaction as DelayTransaction},
         digital::{Mock as PinMock, State, Transaction as PinTransaction},
         spi::{Mock as SpiMock, Transaction as SpiTransaction},
     };
@@ -336,7 +337,10 @@ mod test {
     fn test_latch() {
         let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
         let mut oe_mock = PinMock::new(&[]);
-        let delay_mock = DelayMock::new();
+        let mut delay_mock = CheckedDelay::new(&[
+           DelayTransaction::delay_ns(100), 
+        ]);
+
         // expect latch to go high and then low
         let mut latch_mock = PinMock::new(&[
             PinTransaction::set(State::High),
@@ -347,7 +351,7 @@ mod test {
             spi_mock.clone(),
             oe_mock.clone(),
             latch_mock.clone(),
-            delay_mock,
+            delay_mock.clone(),
         );
 
         dev.latch().unwrap();
@@ -355,5 +359,107 @@ mod test {
         spi_mock.done();
         oe_mock.done();
         latch_mock.done();
+        delay_mock.done();
+    }
+
+    #[test]
+    /// Tests writing of all outputs via SPI (can't simulate bus errors)
+    fn test_write_all() {
+        let mut oe_mock = PinMock::new(&[]);
+        let delay_mock = DelayMock::new();
+
+        let expectations = [
+            SpiTransaction::transaction_start(),
+            SpiTransaction::write_vec(std::vec![0x33, 0x22, 0x11]),
+            SpiTransaction::transaction_end(),
+        ];
+
+        let mut spi_mock = SpiMock::new(&expectations);
+        // expect latch to go high and then low
+        let mut latch_mock = PinMock::new(&[
+            PinTransaction::set(State::High),
+            PinTransaction::set(State::Low),
+        ]);
+
+        let mut dev = ShiftRegister::<3, _, _, _, _>::new(
+            spi_mock.clone(),
+            oe_mock.clone(),
+            latch_mock.clone(),
+            delay_mock,
+        );
+
+        dev.data = [0x33, 0x22, 0x11];
+
+        dev.write_all().unwrap();
+
+        spi_mock.done();
+        oe_mock.done();
+        latch_mock.done();
+    }
+
+    #[test]
+    /// Tests writing of a single output via SPI without touching the others
+    fn test_write_output() {
+        {
+            let mut oe_mock = PinMock::new(&[]);
+            let delay_mock = DelayMock::new();
+
+            let expectations = [
+                SpiTransaction::transaction_start(),
+                SpiTransaction::write_vec(std::vec![0x00, 0x01, 0x00]),
+                SpiTransaction::transaction_end(),
+            ];
+
+            let mut spi_mock = SpiMock::new(&expectations);
+            // expect latch to go high and then low
+            let mut latch_mock = PinMock::new(&[
+                PinTransaction::set(State::High),
+                PinTransaction::set(State::Low),
+            ]);
+
+            let mut dev = ShiftRegister::<3, _, _, _, _>::new(
+                spi_mock.clone(),
+                oe_mock.clone(),
+                latch_mock.clone(),
+                delay_mock,
+            );
+
+            dev.write_output(8, true).unwrap();
+
+            spi_mock.done();
+            oe_mock.done();
+            latch_mock.done();
+        }
+        {
+            let mut oe_mock = PinMock::new(&[]);
+            let delay_mock = DelayMock::new();
+
+            let expectations = [
+                SpiTransaction::transaction_start(),
+                SpiTransaction::write_vec(std::vec![0xFF, 0xFE, 0xFF]),
+                SpiTransaction::transaction_end(),
+            ];
+
+            let mut spi_mock = SpiMock::new(&expectations);
+            // expect latch to go high and then low
+            let mut latch_mock = PinMock::new(&[
+                PinTransaction::set(State::High),
+                PinTransaction::set(State::Low),
+            ]);
+
+            let mut dev = ShiftRegister::<3, _, _, _, _>::new(
+                spi_mock.clone(),
+                oe_mock.clone(),
+                latch_mock.clone(),
+                delay_mock,
+            );
+            
+            dev.data = [0xFF, 0xFF, 0xFF];
+            dev.write_output(8, false).unwrap();
+
+            spi_mock.done();
+            oe_mock.done();
+            latch_mock.done();
+        }
     }
 }
