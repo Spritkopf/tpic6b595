@@ -13,9 +13,9 @@ use embedded_hal::spi::SpiDevice;
 pub enum Error<SPI> {
     /// Supplied index is out of bounds
     IndexOutOfBounds,
-    /// Error from GPIO pin
+    /// Error from a GPIO pin operation (e.g., setting output state of LATCH or Output Enable pins).
     IoError,
-    /// Error from SPI
+    /// Error from SPI device communication
     Spi(SPI),
 }
 
@@ -84,8 +84,8 @@ where
     /// # Returns
     ///
     /// A `Result` indicating success or an error if the operation fails.
-    pub fn enable_output(&mut self, enable: bool) -> Result<(), OE::Error> {
-        self.not_oe.set_state(PinState::from(!enable))
+    pub fn enable_output(&mut self, enable: bool) -> Result<(), Error<SPI::Error>> {
+        self.not_oe.set_state(PinState::from(!enable)).map_err(|_| Error::IoError)
     }
 
     /// Latch data: Pulse RCK pin for 100 ns
