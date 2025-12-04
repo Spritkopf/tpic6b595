@@ -5,6 +5,9 @@ description = "Embedded driver for TPIC6B595 Power Logic Shift Register IC"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+documentation = "https://docs.rs/tpic6b595"
+repository = "https://github.com/Spritkopf/tpic6b595"
+
 
 [dependencies]
 embedded-hal = "1.0.0"
