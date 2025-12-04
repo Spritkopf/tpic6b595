@@ -91,7 +91,7 @@ where
     /// Latch data: Pulse RCK pin for 100 ns
     fn latch(&mut self) -> Result<(), LATCH::Error> {
         self.latch.set_high()?;
-        self.delay.delay_ns(100);
+        self.delay.delay_us(5);
         self.latch.set_low()
     }
 
@@ -338,7 +338,7 @@ mod test {
         let mut spi_mock: SpiMock<u8> = SpiMock::new(&[]);
         let mut oe_mock = PinMock::new(&[]);
         let mut delay_mock = CheckedDelay::new(&[
-           DelayTransaction::delay_ns(100), 
+           DelayTransaction::delay_us(5), 
         ]);
 
         // expect latch to go high and then low
